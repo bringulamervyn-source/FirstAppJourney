@@ -1,12 +1,16 @@
 package com.example.expensestracker.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.expensestracker.data.TransactionEntity
@@ -20,13 +24,17 @@ fun DashboardScreen(viewModel: ExpenseViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val showAddTransactionDialog = remember { mutableStateOf(value = false) }
     val showNewCycleDialog = remember { mutableStateOf(value = false) }
+    val editingTransaction = remember { mutableStateOf<TransactionEntity?>(null) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(title = { Text("Expenses Tracker") })
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddTransactionDialog.value = true }) {
+            FloatingActionButton(onClick = { 
+                editingTransaction.value = null
+                showAddTransactionDialog.value = true 
+            }) {
                 Text("+")
             }
         },
@@ -57,14 +65,30 @@ fun DashboardScreen(viewModel: ExpenseViewModel) {
                 modifier = Modifier.align(Alignment.Start)
             )
 
-            TransactionList(uiState.transactions)
+            TransactionList(
+                transactions = uiState.transactions,
+                onEdit = { 
+                    editingTransaction.value = it
+                    showAddTransactionDialog.value = true
+                },
+                onDelete = { viewModel.deleteTransaction(it) }
+            )
         }
 
         if (showAddTransactionDialog.value) {
-            AddTransactionDialog(
+            AddOrEditTransactionDialog(
+                transaction = editingTransaction.value,
                 onDismiss = { showAddTransactionDialog.value = false },
             ) { amount, type, desc ->
-                viewModel.addTransaction(amount, type, desc)
+                if (editingTransaction.value == null) {
+                    viewModel.addTransaction(amount, type, desc)
+                } else {
+                    viewModel.updateTransaction(editingTransaction.value!!.copy(
+                        amount = amount,
+                        type = type,
+                        description = desc
+                    ))
+                }
                 showAddTransactionDialog.value = false
             }
         }
@@ -92,7 +116,7 @@ fun SummaryCards(uiState: ExpenseUiState) {
 }
 
 @Composable
-fun BalanceCard(title: String, amount: String, color: androidx.compose.ui.graphics.Color) {
+fun BalanceCard(title: String, amount: String, color: Color) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = color),
@@ -104,27 +128,70 @@ fun BalanceCard(title: String, amount: String, color: androidx.compose.ui.graphi
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransactionList(transactions: List<TransactionEntity>) {
+fun TransactionList(
+    transactions: List<TransactionEntity>,
+    onEdit: (TransactionEntity) -> Unit,
+    onDelete: (TransactionEntity) -> Unit,
+) {
     val kuwaitLocale = Locale.Builder().setLanguage("en").setRegion("KW").build()
     val currencyFormatter = NumberFormat.getCurrencyInstance(kuwaitLocale)
     
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items(transactions) { tx ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text(tx.description, style = MaterialTheme.typography.bodyLarge)
-                        Text(tx.type.name, style = MaterialTheme.typography.bodySmall)
+        items(
+            items = transactions,
+            key = { it.id }
+        ) { tx ->
+            val dismissState = rememberSwipeToDismissBoxState()
+
+            LaunchedEffect(dismissState.currentValue) {
+                if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                    onDelete(tx)
+                }
+            }
+
+            SwipeToDismissBox(
+                state = dismissState,
+                backgroundContent = {
+                    val color = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                        Color.Red
+                    } else Color.Transparent
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(color)
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = Color.White
+                        )
                     }
-                    Text(
-                        text = currencyFormatter.format(tx.amount),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                },
+                enableDismissFromStartToEnd = false
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onEdit(tx) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(tx.description, style = MaterialTheme.typography.bodyLarge)
+                            Text(tx.type.name, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            text = currencyFormatter.format(tx.amount),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -132,17 +199,18 @@ fun TransactionList(transactions: List<TransactionEntity>) {
 }
 
 @Composable
-fun AddTransactionDialog(
+fun AddOrEditTransactionDialog(
+    transaction: TransactionEntity? = null,
     onDismiss: () -> Unit,
     onConfirm: (Double, TransactionType, String) -> Unit,
 ) {
-    var amount by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(TransactionType.CARD_PAYMENT) }
+    var amount by remember { mutableStateOf(transaction?.amount?.toString() ?: "") }
+    var description by remember { mutableStateOf(transaction?.description ?: "") }
+    var type by remember { mutableStateOf(transaction?.type ?: TransactionType.CARD_PAYMENT) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Transaction") },
+        title = { Text(if (transaction == null) "Add Transaction" else "Edit Transaction") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Amount") })
@@ -159,7 +227,7 @@ fun AddTransactionDialog(
         },
         confirmButton = {
             Button(onClick = { onConfirm(amount.toDoubleOrNull() ?: 0.0, type, description) }) {
-                Text("Add")
+                Text(if (transaction == null) "Add" else "Save")
             }
         },
         dismissButton = {

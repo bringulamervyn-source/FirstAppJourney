@@ -55,6 +55,14 @@ class ExpenseRepository(private val expenseDao: ExpenseDao) {
         expenseDao.insertTransaction(transaction)
     }
 
+    suspend fun updateTransaction(transaction: TransactionEntity) {
+        expenseDao.updateTransaction(transaction)
+    }
+
+    suspend fun deleteTransaction(transaction: TransactionEntity) {
+        expenseDao.deleteTransaction(transaction)
+    }
+
     suspend fun startNewCycle(salary: Double) {
         val currentCycle = expenseDao.getActiveCycleSync()
         var forwardedBalance = 0.0

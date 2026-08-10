@@ -20,6 +20,12 @@ interface ExpenseDao {
     @Insert
     suspend fun insertTransaction(transaction: TransactionEntity)
 
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+
+    @Delete
+    suspend fun deleteTransaction(transaction: TransactionEntity)
+
     @Query("SELECT SUM(amount) FROM transactions WHERE cycleId = :cycleId AND type = 'CARD_PAYMENT'")
     fun getSumCardPayments(cycleId: Long): Flow<Double?>
 
